@@ -3,6 +3,11 @@ import sys
 
 import discord
 from pyngrok import ngrok, conf, installer
+from mcstatus import JavaServer
+import base64
+import tempfile
+
+from config import Config
 
 
 def install_ngrok(path):
@@ -18,7 +23,7 @@ def start_ngrok(port, protocol):
     ngrok_path = conf.get_default().ngrok_path
     if not os.path.exists(ngrok_path):
         install_ngrok(ngrok_path)
-    ngrok.set_auth_token(os.environ["NGROK_AUTH_TOKEN"])
+    ngrok.set_auth_token(Config.ngrok_auth_token)
     public_url = ngrok.connect(port, protocol).public_url
     return public_url.replace(f"{protocol}://", "")
 
@@ -26,20 +31,38 @@ def start_ngrok(port, protocol):
 if __name__ == "__main__":
     ngrok_port = int(
         (sys.argv[1] if len(sys.argv) > 1 else None)
-        or os.getenv("ROK_PORT")
-        or 25565
+        or Config.ngrok_port
     )
     ngrok_protocol = sys.argv[2] if len(sys.argv) > 2 else "tcp"
+
     client = discord.Client(intents=discord.Intents.default())
+
 
     @client.event
     async def on_ready():
-        guild = client.get_guild(int(os.environ["ROK_DISCORD_GUILD_ID"]))
-        channel = guild.get_channel(int(os.environ["ROK_DISCORD_CHANNEL_ID"]))
         address = start_ngrok(ngrok_port, ngrok_protocol)
-        await channel.send(embed=discord.Embed(
-            title="Server is up!",
-            description=address,
-        ))
+        address = Config.address_handler(address)
 
-    client.run(os.getenv("ROK_DISCORD_BOT_TOKEN"))
+        guild = client.get_guild(Config.discord_guild_id)
+        channel = guild.get_channel(Config.discord_channel_id)
+
+        status = JavaServer.lookup(f"127.0.0.1:{ngrok_port}").status()
+        embed = discord.Embed(
+            title="Minecraft server is up!",
+            description=f"{status.description} on {status.version.name}\nAddress: **{address}**",
+        )
+
+        file = None
+        if status.favicon:
+            # decode b64 and write to a tmp file
+            tmp_file = tempfile.NamedTemporaryFile(delete=False)
+            tmp_file.write(base64.b64decode(status.favicon.split(",")[1].replace("\n", "")))
+            tmp_file.flush()
+            embed = embed.set_thumbnail(url="attachment://favicon.jpeg")
+            # create a discord file from the tmp file
+            file = discord.File(filename="favicon.jpeg", fp=tmp_file.name)
+
+        await channel.send(embed=embed, file=file)
+
+
+    client.run(Config.discord_bot_token)

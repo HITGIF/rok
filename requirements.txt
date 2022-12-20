@@ -1,2 +1,4 @@
 pyngrok==5.2.1
 discord.py~=2.1.0
+requests~=2.26.0
+mcstatus~=10.0.1
